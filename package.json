@@ -1,0 +1,11 @@
+{
+  "name": "jestlike-mock",
+  "version": "1.0.0",
+  "description": "Is supposed to mimic the jest-object's 'mock' features. Use with 'babel-plugin-mock-require'.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Sebastian Jerratsch <sebastian.jerratsch@gmail.com> (https://github.com/allesklarbeidir)",
+  "license": "MIT"
+}
