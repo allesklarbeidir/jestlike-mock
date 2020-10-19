@@ -7,12 +7,18 @@ module.exports.jestMocker = (function(){
         throw new Error("Not yet implemented.");
     };
 
-    const mock = function(moduleName, factory, registerInGlobalObj){
+    const mock = function(moduleName, factory, registerInGlobalObj, partialMockId){
         if(!moduleName || !typeof(moduleName) === "string" || !moduleName.length){
             throw new Error("No module-name specified. Please specify module name either as node-module name or absolute path.");
         }
         if(factory && typeof(factory) === "function"){
-            _mockFactories[moduleName] = factory;
+            if(partialMockId || (_mockFactories[moduleName] && Array.isArray(_mockFactories[moduleName]))){
+                _mockFactories[moduleName] = [...(_mockFactories[moduleName] || []), {factory, partialMockId}];
+            }
+            else{
+                _mockFactories[moduleName] = {factory, partialMockId};
+            }
+
             if(registerInGlobalObj){
                 global.JESTLIKEMOCK_FACTORIES = global.JESTLIKEMOCK_FACTORIES || {}
                 global.JESTLIKEMOCK_FACTORIES[moduleName] = _mockFactories[moduleName];
@@ -20,11 +26,11 @@ module.exports.jestMocker = (function(){
         }
     };
 
-    const unmock = function(moduleName){
+    const unmock = function(moduleName, partialMockId){
         if(!moduleName || !typeof(moduleName) === "string" || !moduleName.length){
             throw new Error("No module-name specified. Please specify module name either as node-module name or absolute path.");
         }
-        if(_mockFactories.hasOwnProperty(moduleName)){
+        if(_mockFactories.hasOwnProperty(moduleName) && !partialMockId){
             delete _mockFactories[moduleName];
 
             if((global.JESTLIKEMOCK_FACTORIES || {}).hasOwnProperty(moduleName)){
@@ -39,6 +45,42 @@ module.exports.jestMocker = (function(){
                 }
             }
         }
+        else if(_mockFactories.hasOwnProperty(moduleName) && partialMockId && Array.isArray(_mockFactories[moduleName])){
+            const factoryIsGloballyRegistered = (global.JESTLIKEMOCK_FACTORIES || {}).hasOwnProperty(moduleName);
+
+            _mockFactories[moduleName] = _mockFactories[moduleName].filter(mf => mf.partialMockId !== partialMockId);
+            if(factoryIsGloballyRegistered){
+                global.JESTLIKEMOCK_FACTORIES[moduleName] = global.JESTLIKEMOCK_FACTORIES[moduleName].filter(mf => mf.partialMockId !== partialMockId);
+            }
+
+
+            if(_mockFactories[moduleName].length === 0){
+                delete _mockFactories[moduleName];
+                if(factoryIsGloballyRegistered){
+                    delete global.JESTLIKEMOCK_FACTORIES[moduleName];
+                }
+            }
+
+
+            if(_mockRegistry.hasOwnProperty(moduleName) && Array.isArray(_mockRegistry[moduleName])){
+                const moduleIsGloballyRegistered = (global.JESTLIKEMOCK_REGISTRY || {}).hasOwnProperty(moduleName);
+
+                _mockRegistry[moduleName] = _mockRegistry[moduleName].filter(mf => mf.partialMockId !== partialMockId);
+                if(moduleIsGloballyRegistered){
+                    global.JESTLIKEMOCK_REGISTRY[moduleName] = global.JESTLIKEMOCK_REGISTRY[moduleName].filter(mf => mf.partialMockId !== partialMockId)
+                }
+
+                if(_mockRegistry[moduleName].length === 0){
+                    delete _mockRegistry[moduleName];
+                    if(moduleIsGloballyRegistered){
+                        delete global.JESTLIKEMOCK_REGISTRY[moduleName];
+                    }
+                }
+
+            }
+
+
+        }
     };
 
     return {
@@ -47,23 +89,34 @@ module.exports.jestMocker = (function(){
         unmock
     }
 })();
+
+
+const mergeFactoryResults = (results) => {
+    
+    return results.reduce((res, r) => ({...res, ...r.factoryResult}), {});
+
+};
+
+
 module.exports.default = function(_requireValue, falseifnotfound){
 
     if(_requireValue){
         if (_mockFactories.hasOwnProperty(_requireValue)) {
-            if(_mockRegistry.hasOwnProperty(_requireValue)){
-                return _mockRegistry[_requireValue];
-            }
 
-            return (_mockRegistry[_requireValue] = _mockFactories[_requireValue]());
+            return Array.isArray(_mockFactories[_requireValue]) ?
+            mergeFactoryResults((_mockRegistry[_requireValue] = _mockFactories[_requireValue].map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))))
+            :
+            (_mockRegistry.hasOwnProperty(_requireValue) ? _mockRegistry[_requireValue] : (_mockRegistry[_requireValue] = _mockFactories[_requireValue].factory()));
+
         }
         else if ((global.JESTLIKEMOCK_FACTORIES || {}).hasOwnProperty(_requireValue)) {
-            if((global.JESTLIKEMOCK_REGISTRY || {}).hasOwnProperty(_requireValue)){
-                return global.JESTLIKEMOCK_REGISTRY[_requireValue];
-            }
 
             global.JESTLIKEMOCK_REGISTRY = global.JESTLIKEMOCK_REGISTRY || {};
-            return (global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue]());
+
+            return Array.isArray(global.JESTLIKEMOCK_FACTORIES[_requireValue]) ?
+            mergeFactoryResults((global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue].map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))))
+            :
+            ((global.JESTLIKEMOCK_REGISTRY || {}).hasOwnProperty(_requireValue) ? global.JESTLIKEMOCK_REGISTRY[_requireValue] : (global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue].factory()));
         }
         else if(!falseifnotfound){
             return require(_requireValue);
