@@ -7,16 +7,16 @@ module.exports.jestMocker = (function(){
         throw new Error("Not yet implemented.");
     };
 
-    const mock = function(moduleName, factory, registerInGlobalObj, partialMockId){
+    const mock = function(moduleName, factory, registerInGlobalObj, partialMockId, shouldHandle){
         if(!moduleName || !typeof(moduleName) === "string" || !moduleName.length){
             throw new Error("No module-name specified. Please specify module name either as node-module name or absolute path.");
         }
         if(factory && typeof(factory) === "function"){
             if(partialMockId || (_mockFactories[moduleName] && Array.isArray(_mockFactories[moduleName]))){
-                _mockFactories[moduleName] = [...(_mockFactories[moduleName] || []), {factory, partialMockId}];
+                _mockFactories[moduleName] = [...(_mockFactories[moduleName] || []), {factory, partialMockId, shouldHandle}];
             }
             else{
-                _mockFactories[moduleName] = {factory, partialMockId};
+                _mockFactories[moduleName] = {factory, partialMockId, shouldHandle};
             }
 
             if(registerInGlobalObj){
@@ -98,15 +98,23 @@ const mergeFactoryResults = (results) => {
 };
 
 
-module.exports.default = function(_requireValue, falseifnotfound){
+module.exports.default = function(_requireValue, fromdir, falseifnotfound){
 
     if(_requireValue){
         if (_mockFactories.hasOwnProperty(_requireValue)) {
 
             return Array.isArray(_mockFactories[_requireValue]) ?
-            mergeFactoryResults((_mockRegistry[_requireValue] = _mockFactories[_requireValue].map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))))
+            mergeFactoryResults(
+                (_mockRegistry[_requireValue] = _mockFactories[_requireValue]
+                    .filter(mf => !mf.shouldHandle || mf.shouldHandle(fromdir))
+                    .map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))
+                )
+            )
             :
-            (_mockRegistry.hasOwnProperty(_requireValue) ? _mockRegistry[_requireValue] : (_mockRegistry[_requireValue] = _mockFactories[_requireValue].factory()));
+            (
+                (!_mockFactories[_requireValue].shouldHandle || _mockFactories[_requireValue].shouldHandle(fromdir)) && 
+                _mockRegistry.hasOwnProperty(_requireValue) ? _mockRegistry[_requireValue] : (_mockRegistry[_requireValue] = _mockFactories[_requireValue].factory())
+            );
 
         }
         else if ((global.JESTLIKEMOCK_FACTORIES || {}).hasOwnProperty(_requireValue)) {
@@ -114,9 +122,17 @@ module.exports.default = function(_requireValue, falseifnotfound){
             global.JESTLIKEMOCK_REGISTRY = global.JESTLIKEMOCK_REGISTRY || {};
 
             return Array.isArray(global.JESTLIKEMOCK_FACTORIES[_requireValue]) ?
-            mergeFactoryResults((global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue].map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))))
+            mergeFactoryResults(
+                (global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue]
+                    .filter(mf => !mf.shouldHandle || mf.shouldHandle(fromdir))
+                    .map(mf => ({...mf, factoryResult: mf.factoryResult || mf.factory()}))
+                )
+            )
             :
-            ((global.JESTLIKEMOCK_REGISTRY || {}).hasOwnProperty(_requireValue) ? global.JESTLIKEMOCK_REGISTRY[_requireValue] : (global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue].factory()));
+            (
+                (!global.JESTLIKEMOCK_FACTORIES[_requireValue].shouldHandle || global.JESTLIKEMOCK_FACTORIES[_requireValue].shouldHandle(fromdir)) &&
+                (global.JESTLIKEMOCK_REGISTRY || {}).hasOwnProperty(_requireValue) ? global.JESTLIKEMOCK_REGISTRY[_requireValue] : (global.JESTLIKEMOCK_REGISTRY[_requireValue] = global.JESTLIKEMOCK_FACTORIES[_requireValue].factory())
+            );
         }
         else if(!falseifnotfound){
             return require(_requireValue);
